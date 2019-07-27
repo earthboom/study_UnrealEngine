@@ -1,5 +1,7 @@
 #ignore
 
 TwinStickShooter/Binaries/
+TwinStickShooter/Build/
 TwinStickShooter/Saved/
 TwinStickShooter/Intermediate/
+TwinStickShooter/WindowsNoEditor/
