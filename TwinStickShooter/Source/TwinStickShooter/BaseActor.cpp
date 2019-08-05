@@ -25,9 +25,17 @@ void ABaseActor::Tick(float DeltaTime)
 
 }
 
-void ABaseActor::FloatReset(float& _f)
+void ABaseActor::LaserGageReset(void)
 {
-	_f = 0.0f;
+	LaserGage = 0.0f;
+}
+
+void ABaseActor::onGage(float& _f)
+{
+	LaserGage += _f;
+
+	if (LaserGage > 100.0f)
+		LaserGage = 100.0f;
 }
 
 //template<typename T> 

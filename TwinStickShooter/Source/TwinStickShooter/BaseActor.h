@@ -12,8 +12,17 @@ class TWINSTICKSHOOTER_API ABaseActor : public AActor
 	GENERATED_BODY()
 	
 public:
+	UPROPERTY(BluePrintReadWrite, EditAnywhere, Category = "Base Actor")
+		float LaserGage = 0.0f;
+
+	UPROPERTY(BluePrintReadWrite, EditAnywhere, Category = "Base Actor")
+		bool bMouseClick = false;
+
 	UFUNCTION(BlueprintCallable, Category = "Base Actor")
-		void FloatReset(float& _f);
+		virtual void LaserGageReset();
+
+	UFUNCTION(BlueprintCallable, Category = "Base Actor")
+		virtual void onGage(float& _f);
 
 public:	
 	// Sets default values for this actor's properties
