@@ -22,7 +22,7 @@ public:
 		virtual void LaserGageReset();
 
 	UFUNCTION(BlueprintCallable, Category = "Base Actor")
-		virtual void onGage(float& _f);
+		virtual void onGage(float _f);
 
 public:	
 	// Sets default values for this actor's properties

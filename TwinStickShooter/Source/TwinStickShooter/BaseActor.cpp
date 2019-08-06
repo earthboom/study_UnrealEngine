@@ -30,7 +30,7 @@ void ABaseActor::LaserGageReset(void)
 	LaserGage = 0.0f;
 }
 
-void ABaseActor::onGage(float& _f)
+void ABaseActor::onGage(float _f)
 {
 	LaserGage += _f;
 
