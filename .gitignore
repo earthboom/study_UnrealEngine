@@ -1,5 +1,6 @@
 #ignore
 
+TwinStickShooter/.vs/
 TwinStickShooter/Binaries/
 TwinStickShooter/Build/
 TwinStickShooter/Saved/
@@ -8,6 +9,7 @@ TwinStickShooter/WindowsNoEditor/
 TwinStickShooter/.vs/TwinStickShooter/
 
 
+Material/.vs/
 Material/Binaries/
 Material/Build/
 Material/Saved/
@@ -16,6 +18,7 @@ Material/WindowsNoEditor/
 Material/.vs/Material/
 
 
+StudyProject_0/.vs/
 StudyProject_0/Binaries/
 StudyProject_0/Build/
 StudyProject_0/Content/InfinityBladeGrassLands/
