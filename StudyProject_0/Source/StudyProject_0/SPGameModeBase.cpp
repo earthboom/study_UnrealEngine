@@ -3,11 +3,13 @@
 
 #include "SPGameModeBase.h"
 #include "SPPawn.h"
+#include "SPCharacter.h"
 #include "SPPlayerController.h"
 
 ASPGameModeBase::ASPGameModeBase()
 {
-	DefaultPawnClass = ASPPawn::StaticClass();
+	//DefaultPawnClass = ASPPawn::StaticClass();
+	DefaultPawnClass = ASPCharacter::StaticClass();
 	PlayerControllerClass = ASPPlayerController::StaticClass();
 }
 
