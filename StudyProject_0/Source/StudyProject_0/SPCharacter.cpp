@@ -2,14 +2,19 @@
 
 
 #include "SPCharacter.h"
+#include "SPAnimInstance.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/Controller.h"
 #include "UObject/ConstructorHelpers.h"
+#include "DrawDebugHelpers.h"
 
 // Sets default values
 ASPCharacter::ASPCharacter()
 	: Super()
+	, ArmLengthSpeed(3.0f), ArmRotationSpeed(10.0f), IsAttacking(false)
+	, MaxCombo(4), AttackRange(200.0f), AttackRadius(50.0f)
 {
  	// Set this character to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
@@ -33,7 +38,13 @@ ASPCharacter::ASPCharacter()
 	if (WARRIOR_ANIM.Succeeded())
 		GetMesh()->SetAnimInstanceClass(WARRIOR_ANIM.Class);
 
-	SetControlMode(0);
+	SetControlMode(EControlMode::DIABLO);
+
+	GetCharacterMovement()->JumpZVelocity = 800.0f;
+
+	AttackEndComboState();
+
+	GetCapsuleComponent()->SetCollisionProfileName(TEXT("SPCharacter"));
 }
 
 // Called when the game starts or when spawned
@@ -43,12 +54,16 @@ void ASPCharacter::BeginPlay()
 	
 }
 
-void ASPCharacter::SetControlMode(int32 ControlMode)
+void ASPCharacter::SetControlMode(EControlMode NewControlMode)
 {
-	if (ControlMode == 0)
+	CurrentControlMode = NewControlMode;
+
+	switch (CurrentControlMode)
 	{
-		SpringArm->TargetArmLength = 450.0f;
-		SpringArm->SetRelativeRotation(FRotator::ZeroRotator);
+	case EControlMode::GTA:
+		//SpringArm->TargetArmLength = 450.0f;
+		//SpringArm->SetRelativeRotation(FRotator::ZeroRotator);
+		ArmLengthTo = 450.0f;
 		SpringArm->bUsePawnControlRotation = true;
 		SpringArm->bInheritPitch = true;
 		SpringArm->bInheritRoll = true;
@@ -56,7 +71,24 @@ void ASPCharacter::SetControlMode(int32 ControlMode)
 		SpringArm->bDoCollisionTest = true;
 		bUseControllerRotationYaw = false;
 		GetCharacterMovement()->bOrientRotationToMovement = true;
+		GetCharacterMovement()->bUseControllerDesiredRotation = false;
 		GetCharacterMovement()->RotationRate = FRotator(0.0f, 720.0f, 0.0f);
+		break;
+	case EControlMode::DIABLO:
+		//SpringArm->TargetArmLength = 800.0f;
+		//SpringArm->SetRelativeRotation(FRotator(-45.0, 0.0f, 0.0f));
+		ArmLengthTo = 800.0f;
+		ArmRotationTo = FRotator(-45.0f, 0.0f, 0.0f);
+		SpringArm->bUsePawnControlRotation = false;
+		SpringArm->bInheritPitch = false;
+		SpringArm->bInheritRoll = false;
+		SpringArm->bInheritYaw = false;
+		SpringArm->bDoCollisionTest = false;
+		bUseControllerRotationYaw = false;
+		GetCharacterMovement()->bOrientRotationToMovement = false;
+		GetCharacterMovement()->bUseControllerDesiredRotation = true;
+		GetCharacterMovement()->RotationRate = FRotator(0.0f, 720.0f, 0.0f);
+		break;
 	}
 }
 
@@ -65,12 +97,61 @@ void ASPCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+	SpringArm->TargetArmLength = FMath::FInterpTo(SpringArm->TargetArmLength, ArmLengthTo, DeltaTime, ArmLengthSpeed);
+
+	switch (CurrentControlMode)
+	{
+	case EControlMode::GTA:
+		break;
+	case EControlMode::DIABLO:
+		SpringArm->RelativeRotation = FMath::RInterpTo(SpringArm->RelativeRotation, ArmRotationTo, DeltaTime, ArmRotationSpeed);
+		break;
+	}
+
+	switch (CurrentControlMode)
+	{
+	case EControlMode::GTA:
+		break;
+	case EControlMode::DIABLO:
+		if (DirectionToMove.SizeSquared() > 0.0f)
+		{
+			GetController()->SetControlRotation(FRotationMatrix::MakeFromX(DirectionToMove).Rotator());
+			AddMovementInput(DirectionToMove);
+		}
+		break;
+	}
+}
+
+void ASPCharacter::PostInitializeComponents()
+{
+	Super::PostInitializeComponents();
+	SPAnim = Cast<USPAnimInstance>(GetMesh()->GetAnimInstance());
+	ABCHECK(nullptr != SPAnim);
+
+	SPAnim->OnMontageEnded.AddDynamic(this, &ASPCharacter::OnAttackMontageEnded);
+
+	SPAnim->OnNextAttackCheck.AddLambda([this]()->void {
+		ABLOG(Warning, TEXT("OnNextAttackCheck"));
+		CanNextCombo = false;
+
+		if (IsComboInputOn)
+		{
+			AttackStartComboState();
+			SPAnim->JumpToAttackMontageSection(CurrentCombo);
+		}
+	});
+
+	SPAnim->OnAttackHitCheck.AddUObject(this, &ASPCharacter::AttackCheck);
 }
 
 // Called to bind functionality to input
 void ASPCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
+
+	PlayerInputComponent->BindAction(TEXT("ViewChange"), EInputEvent::IE_Pressed, this, &ASPCharacter::ViewChange);
+	PlayerInputComponent->BindAction(TEXT("Jump"), EInputEvent::IE_Pressed, this, &ASPCharacter::Jump);
+	PlayerInputComponent->BindAction(TEXT("Attack"), EInputEvent::IE_Pressed, this, &ASPCharacter::Attack);
 
 	PlayerInputComponent->BindAxis(TEXT("UpDown"), this, &ASPCharacter::UpDown);
 	PlayerInputComponent->BindAxis(TEXT("LeftRight"), this, &ASPCharacter::LeftRight);
@@ -81,22 +162,149 @@ void ASPCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompone
 void ASPCharacter::UpDown(float NewAxisValue)
 {
 	//AddMovementInput(GetActorForwardVector(), NewAxisValue);
-	AddMovementInput(FRotationMatrix(GetControlRotation()).GetUnitAxis(EAxis::X), NewAxisValue);
+	
+	switch (CurrentControlMode)
+	{
+	case EControlMode::GTA:
+		AddMovementInput(FRotationMatrix(GetControlRotation()).GetUnitAxis(EAxis::X), NewAxisValue);
+		break;
+	case EControlMode::DIABLO:
+		DirectionToMove.X = NewAxisValue;
+		break;
+	}
 }
 
 void ASPCharacter::LeftRight(float NewAxisValue)
 {
 	//AddMovementInput(GetActorRightVector(), NewAxisValue);
-	AddMovementInput(FRotationMatrix(GetControlRotation()).GetUnitAxis(EAxis::Y), NewAxisValue);
+	
+	switch (CurrentControlMode)
+	{
+	case EControlMode::GTA:
+		AddMovementInput(FRotationMatrix(GetControlRotation()).GetUnitAxis(EAxis::Y), NewAxisValue);
+		break;
+	case EControlMode::DIABLO:
+		DirectionToMove.Y = NewAxisValue;
+		
+		break;
+	}
 }
 
 void ASPCharacter::LookUp(float NewAxisValue)
-{
-	AddControllerPitchInput(NewAxisValue);
+{	
+	switch (CurrentControlMode)
+	{
+	case EControlMode::GTA:
+		AddControllerPitchInput(NewAxisValue);
+		break;
+	case EControlMode::DIABLO:		
+		break;
+	}
 }
 
 void ASPCharacter::Turn(float NewAxisValue)
+{	
+	switch (CurrentControlMode)
+	{
+	case EControlMode::GTA:
+		AddControllerYawInput(NewAxisValue);
+		break;
+	case EControlMode::DIABLO:
+		break;
+	}
+}
+
+void ASPCharacter::ViewChange()
 {
-	AddControllerYawInput(NewAxisValue);
+	switch (CurrentControlMode)
+	{
+	case EControlMode::GTA:
+		GetController()->SetControlRotation(GetActorRotation());
+		SetControlMode(EControlMode::DIABLO);
+		break;
+	case EControlMode::DIABLO:
+		GetController()->SetControlRotation(SpringArm->RelativeRotation);
+		SetControlMode(EControlMode::GTA);
+		break;
+	}
+}
+
+void ASPCharacter::Attack()
+{
+	if (IsAttacking)
+	{
+		ABCHECK(FMath::IsWithinInclusive<int32>(CurrentCombo, 1, MaxCombo));
+		if (CanNextCombo)
+		{
+			IsComboInputOn = true;
+		}
+	}
+	else
+	{
+		ABCHECK(CurrentCombo == 0);
+		AttackStartComboState();
+		SPAnim->PlayAttackMongtage();
+		SPAnim->JumpToAttackMontageSection(CurrentCombo);
+		IsAttacking = true;
+	}
+}
+
+void ASPCharacter::OnAttackMontageEnded(UAnimMontage* Montage, bool bInterrupted)
+{
+	ABCHECK(IsAttacking);
+	ABCHECK(CurrentCombo > 0);
+	IsAttacking = false;
+	AttackEndComboState();
+}
+
+void ASPCharacter::AttackStartComboState()
+{
+	CanNextCombo = true;
+	IsComboInputOn = false;
+	ABCHECK(FMath::IsWithinInclusive<int32>(CurrentCombo, 0, MaxCombo - 1));
+	CurrentCombo = FMath::Clamp<int32>(CurrentCombo + 1, 1, MaxCombo);
+}
+
+void ASPCharacter::AttackEndComboState()
+{
+	IsComboInputOn = false;
+	CanNextCombo = false;
+	CurrentCombo = 0;
+}
+
+void ASPCharacter::AttackCheck()
+{
+	FHitResult HitResult;
+	FCollisionQueryParams Params(NAME_None, false, this);
+	bool bResult = GetWorld()->SweepSingleByChannel(
+		HitResult, GetActorLocation(),
+		GetActorLocation() + GetActorForwardVector() * AttackRange,
+		FQuat::Identity,
+		ECollisionChannel::ECC_EngineTraceChannel2,
+		FCollisionShape::MakeSphere(AttackRadius),
+		Params);
+
+#if ENABLE_DRAW_DEBUG
+	
+	FVector TraceVec = GetActorForwardVector() * AttackRange;
+	FVector Center = GetActorLocation() + TraceVec * 0.5f;
+	float HalfHeight = AttackRange * 0.5f + AttackRadius;
+	FQuat CapsuleRot = FRotationMatrix::MakeFromZ(TraceVec).ToQuat();
+	FColor DrawColor = bResult ? FColor::Green : FColor::Red;
+	float DebugLifeTime = 2.0f;
+
+	DrawDebugCapsule(GetWorld(),
+		Center, HalfHeight, AttackRadius,
+		CapsuleRot, DrawColor, false, DebugLifeTime);
+
+#endif
+
+	if (bResult)
+	{
+		if (HitResult.Actor.IsValid())
+		{
+			ABLOG(Warning, TEXT("Hit Actor Name : %s"), *HitResult.Actor->GetName());
+		}
+	}
 }
 

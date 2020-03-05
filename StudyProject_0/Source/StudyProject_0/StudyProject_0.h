@@ -11,3 +11,5 @@ DECLARE_LOG_CATEGORY_EXTERN(StudyProject_0, Log, All);
 #define ABLOG_S(Verbosity) UE_LOG(StudyProject_0, Verbosity, TEXT("%s"), *ABLOG_CALLINFO)
 
 #define ABLOG(Verbosity, Format, ...) UE_LOG(StudyProject_0, Verbosity, TEXT("%s%s"), *ABLOG_CALLINFO, *FString::Printf(Format, ##__VA_ARGS__))
+
+#define ABCHECK(Expr, ...) {if(!(Expr)) { ABLOG(Error, TEXT("ASSERTION : %s"), TEXT("'"#Expr"'")); return __VA_ARGS__; }}
