@@ -8,8 +8,8 @@
 //#include "Animation/AnimMontage.h"
 
 USPAnimInstance::USPAnimInstance()
-	: CurrentPawnSpeed(0.0f)
-	, IsInAir(false)
+	: IsInAir(false), IsDead(false)
+	,CurrentPawnSpeed(0.0f)
 {
 	static ConstructorHelpers::FObjectFinder<UAnimMontage> ATTACK_MONTAGE(TEXT("/Game/Book/Animations/SK_Mannequin_Skeleton_Montage.SK_Mannequin_Skeleton_Montage"));
 	if (ATTACK_MONTAGE.Succeeded())
@@ -21,7 +21,9 @@ void USPAnimInstance::NativeUpdateAnimation(float Deltaseconds)
 	Super::NativeUpdateAnimation(Deltaseconds);
 
 	auto Pawn = TryGetPawnOwner();
-	if (::IsValid(Pawn))
+	if (!::IsValid(Pawn)) return;
+
+	if (!IsDead)
 	{
 		CurrentPawnSpeed = Pawn->GetVelocity().Size();
 		auto Character = Cast<ASPCharacter>(Pawn);
@@ -32,11 +34,13 @@ void USPAnimInstance::NativeUpdateAnimation(float Deltaseconds)
 
 void USPAnimInstance::PlayAttackMongtage()
 {
+	ABCHECK(!IsDead);
 	Montage_Play(AttackMontage, 1.0f);
 }
 
 void USPAnimInstance::JumpToAttackMontageSection(int32 NewSection)
 {
+	ABCHECK(!IsDead);
 	ABCHECK(Montage_IsPlaying(AttackMontage));
 	Montage_JumpToSection(GetAttackMontageSectionName(NewSection), AttackMontage);
 }

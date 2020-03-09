@@ -3,8 +3,11 @@
 
 #include "SPCharacter.h"
 #include "SPAnimInstance.h"
+#include "SPWeapon.h"
+#include "SPCharacterStatComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/WidgetComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "UObject/ConstructorHelpers.h"
@@ -13,7 +16,8 @@
 // Sets default values
 ASPCharacter::ASPCharacter()
 	: Super()
-	, ArmLengthSpeed(3.0f), ArmRotationSpeed(10.0f), IsAttacking(false)
+	, IsAttacking(false)
+	, ArmLengthSpeed(3.0f), ArmRotationSpeed(10.0f)
 	, MaxCombo(4), AttackRange(200.0f), AttackRadius(50.0f)
 {
  	// Set this character to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
@@ -21,9 +25,12 @@ ASPCharacter::ASPCharacter()
 
 	SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SPRINGARM"));
 	Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("CAMERA"));
+	CharacterStat = CreateDefaultSubobject<USPCharacterStatComponent>(TEXT("CHARACTERSTAT"));
+	HPBarWidget = CreateDefaultSubobject<UWidgetComponent>(TEXT("HPBARWIDGET"));
 
 	SpringArm->SetupAttachment(GetCapsuleComponent());
 	Camera->SetupAttachment(SpringArm);
+	HPBarWidget->SetupAttachment(GetMesh());
 
 	GetMesh()->SetRelativeLocationAndRotation(FVector(0.0f, 0.0f, -88.0f), FRotator(0.0f, -90.0f, 0.0f));
 	SpringArm->TargetArmLength = 400.0f;
@@ -45,6 +52,15 @@ ASPCharacter::ASPCharacter()
 	AttackEndComboState();
 
 	GetCapsuleComponent()->SetCollisionProfileName(TEXT("SPCharacter"));
+
+	HPBarWidget->SetRelativeLocation(FVector(0.0f, 0.0f, 180.0f));
+	HPBarWidget->SetWidgetSpace(EWidgetSpace::Screen);
+	static ConstructorHelpers::FClassFinder<UUserWidget> UI_HUD(TEXT("/Game/Book/UI/UI_HPBar.UI_HPBar_C"));
+	if (UI_HUD.Succeeded())
+	{
+		HPBarWidget->SetWidgetClass(UI_HUD.Class);
+		HPBarWidget->SetDrawSize(FVector2D(150.0f, 50.0f));
+	}
 }
 
 // Called when the game starts or when spawned
@@ -52,6 +68,11 @@ void ASPCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 	
+	//Weapon
+	//FName WeaponSocket(TEXT("hand_rSocket"));
+	//auto CurWeapon = GetWorld()->SpawnActor<ASPWeapon>(FVector::ZeroVector, FRotator::ZeroRotator);
+	//if (CurWeapon != nullptr)
+	//	CurWeapon->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, WeaponSocket);
 }
 
 void ASPCharacter::SetControlMode(EControlMode NewControlMode)
@@ -142,6 +163,28 @@ void ASPCharacter::PostInitializeComponents()
 	});
 
 	SPAnim->OnAttackHitCheck.AddUObject(this, &ASPCharacter::AttackCheck);
+
+	CharacterStat->OnHPIsZero.AddLambda([this]()->void {
+		ABLOG(Warning, TEXT("OnHPIsZero"));
+		SPAnim->SetDeadAnim();
+		SetActorEnableCollision(false);
+	});
+}
+
+float ASPCharacter::TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCause)
+{
+	float FinalDamage = Super::TakeDamage(DamageAmount, DamageEvent, EventInstigator, DamageCause);
+	ABLOG(Warning, TEXT("Actor : %s took Damage : %f"), *GetName(), FinalDamage);
+
+	//if (FinalDamage > 0.0f)
+	//{
+	//	SPAnim->SetDeadAnim();
+	//	SetActorEnableCollision(false);
+	//}
+
+	CharacterStat->SetDamage(FinalDamage);
+
+	return FinalDamage;
 }
 
 // Called to bind functionality to input
@@ -157,6 +200,24 @@ void ASPCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompone
 	PlayerInputComponent->BindAxis(TEXT("LeftRight"), this, &ASPCharacter::LeftRight);
 	PlayerInputComponent->BindAxis(TEXT("LookUp"), this, &ASPCharacter::LookUp);
 	PlayerInputComponent->BindAxis(TEXT("Turn"), this, &ASPCharacter::Turn);
+}
+
+bool ASPCharacter::CanSetWeapon()
+{
+	return (nullptr == CurrentWeapon);
+}
+
+void ASPCharacter::SetWeapon(ASPWeapon* NewWeapon)
+{
+	ABCHECK(nullptr != NewWeapon && nullptr == CurrentWeapon);
+
+	FName WeaponSocket(TEXT("hand_rSocket"));
+	if (nullptr != NewWeapon)
+	{
+		NewWeapon->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, WeaponSocket);
+		NewWeapon->SetOwner(this);
+		CurrentWeapon = NewWeapon;
+	}
 }
 
 void ASPCharacter::UpDown(float NewAxisValue)
@@ -304,6 +365,9 @@ void ASPCharacter::AttackCheck()
 		if (HitResult.Actor.IsValid())
 		{
 			ABLOG(Warning, TEXT("Hit Actor Name : %s"), *HitResult.Actor->GetName());
+
+			FDamageEvent DamageEvent;
+			HitResult.Actor->TakeDamage(CharacterStat->GetAttack(), DamageEvent, GetController(), this);
 		}
 	}
 }
