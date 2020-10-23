@@ -5,6 +5,7 @@
 #include "StudyProject_0.h"
 #include "Engine/DataTable.h"
 #include "Engine/GameInstance.h"
+#include "Engine/StreamableManager.h"
 #include "SPGameInstance.generated.h"
 
 /**
@@ -45,6 +46,8 @@ public:
 
 	virtual void Init() override;
 	FSPCharacterData* GetSPCharacterData(int32 Level);
+
+	FStreamableManager StreamableManager;
 
 private:
 	UPROPERTY()

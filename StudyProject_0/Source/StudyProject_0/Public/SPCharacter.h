@@ -8,6 +8,8 @@
 #include "Camera/CameraComponent.h"
 #include "SPCharacter.generated.h"
 
+DECLARE_MULTICAST_DELEGATE(FOnAttackEndDelegate);
+
 UCLASS()
 class STUDYPROJECT_0_API ASPCharacter : public ACharacter
 {
@@ -17,6 +19,12 @@ public:
 	// Sets default values for this character's properties
 	ASPCharacter();
 
+	void SetCharacterState(ECharacterState NewState);
+	ECharacterState GetCharacterState() const;
+	int32 GetExp() const;
+	float GetFinalAttackRange() const;
+	float GetFinalAttackDamage() const;
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
@@ -24,7 +32,8 @@ protected:
 	enum class EControlMode
 	{
 		GTA,
-		DIABLO
+		DIABLO,
+		NPC
 	};
 	
 	void SetControlMode(EControlMode NewControlMode);
@@ -41,6 +50,7 @@ public:
 	virtual void Tick(float DeltaTime) override;
 	virtual void PostInitializeComponents() override;
 	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, class AController* EventInstigator, AActor* DamageCause) override;
+	virtual void PossessedBy(AController* NewController) override;
 
 	// Called to bind functionality to input
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
@@ -49,20 +59,23 @@ public:
 	void SetWeapon(class ASPWeapon* NewWeapon);
 
 	UPROPERTY(VisibleAnywhere, Category = Weapon)
-	class ASPWeapon* CurrentWeapon;
+		class ASPWeapon* CurrentWeapon;
 	
 	UPROPERTY(VisibleAnywhere, Category = Stat)
-	class USPCharacterStatComponent* CharacterStat;
+		class USPCharacterStatComponent* CharacterStat;
 
 	UPROPERTY(VisibleAnywhere, Category = Camera)
-	USpringArmComponent* SpringArm;
+		USpringArmComponent* SpringArm;
 
 	UPROPERTY(VisibleAnywhere, Category = Camera)
-	UCameraComponent* Camera;
+		UCameraComponent* Camera;
 
 	UPROPERTY(VisibleAnywhere, Category = UI)
-	class UWidgetComponent* HPBarWidget;
+		class UWidgetComponent* HPBarWidget;
 
+	void Attack();
+	FOnAttackEndDelegate OnAttackEnd;
+	
 private:
 	void UpDown(float NewAxisValue);
 	void LeftRight(float NewAxisValue);
@@ -70,14 +83,15 @@ private:
 	void Turn(float NewAxisValue);
 
 	void ViewChange();
-	void Attack();
-
+	
 	UFUNCTION()
 	void OnAttackMontageEnded(UAnimMontage* Montage, bool bInterrupted);
 
 	void AttackStartComboState();
 	void AttackEndComboState();
 	void AttackCheck();
+	
+	void OnAssetLoadCompleted();
 
 private:
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = Attack, Meta = (AllowPrivateAccess = true))
@@ -103,4 +117,26 @@ private:
 	
 	UPROPERTY()
 	class USPAnimInstance* SPAnim;	
+
+	int32 AssetIndex = 0;
+
+	FSoftObjectPath CharacterAssetToLoad = FSoftObjectPath(nullptr);
+	TSharedPtr<struct FStreamableHandle> AssetStreamingHandle;
+
+	UPROPERTY(Transient, VisibleInstanceOnly, BlueprintReadOnly, Category = State, Meta = (AllowPrivateAccess = true))
+	ECharacterState CurrentState;
+
+	UPROPERTY(Transient, VisibleInstanceOnly, BlueprintReadOnly, Category = State, Meta = (AllowPrivateAccess = true))
+	bool bIsPlayer;
+
+	UPROPERTY()
+	class ASPAIController* SPAIController;
+
+	UPROPERTY()
+	class ASPPlayerController* SPPlayerController;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = State, Meta = (AllowPRivateAccess = true))
+	float DeadTimer;
+
+	FTimerHandle DeadTimerHandle = {};
 };

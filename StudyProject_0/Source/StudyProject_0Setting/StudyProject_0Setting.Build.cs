@@ -2,15 +2,15 @@
 
 using UnrealBuildTool;
 
-public class StudyProject_0 : ModuleRules
+public class StudyProject_0Setting : ModuleRules
 {
-	public StudyProject_0(ReadOnlyTargetRules Target) : base(Target)
+	public StudyProject_0Setting(ReadOnlyTargetRules Target) : base(Target)
 	{
-		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
-	
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "UMG", "NavigationSystem", "AIModule", "GameplayTasks" });
+        PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		PrivateDependencyModuleNames.AddRange(new string[] { "StudyProject_0Setting" });
+        PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine" });
+
+		PrivateDependencyModuleNames.AddRange(new string[] {  });
 
 		// Uncomment if you are using Slate UI
 		// PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });

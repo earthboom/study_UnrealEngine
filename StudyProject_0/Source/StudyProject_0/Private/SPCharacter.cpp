@@ -5,6 +5,15 @@
 #include "SPAnimInstance.h"
 #include "SPWeapon.h"
 #include "SPCharacterStatComponent.h"
+#include "SPCharacterWidget.h"
+#include "SPAIController.h"
+#include "SPCharacterSetting.h"
+#include "SPGameInstance.h"
+#include "SPPlayerController.h"
+#include "SPPlayerState.h"
+#include "SPHUDWidget.h"
+#include "SPGameModeBase.h"
+
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/WidgetComponent.h"
@@ -12,13 +21,15 @@
 #include "GameFramework/Controller.h"
 #include "UObject/ConstructorHelpers.h"
 #include "DrawDebugHelpers.h"
+#include "TimerManager.h"
 
 // Sets default values
 ASPCharacter::ASPCharacter()
 	: Super()
 	, IsAttacking(false)
 	, ArmLengthSpeed(3.0f), ArmRotationSpeed(10.0f)
-	, MaxCombo(4), AttackRange(200.0f), AttackRadius(50.0f)
+	, MaxCombo(4), AttackRange(80.0f), AttackRadius(50.0f)
+	, AssetIndex(4), DeadTimer(5.0f)
 {
  	// Set this character to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
@@ -61,6 +72,136 @@ ASPCharacter::ASPCharacter()
 		HPBarWidget->SetWidgetClass(UI_HUD.Class);
 		HPBarWidget->SetDrawSize(FVector2D(150.0f, 50.0f));
 	}
+
+	AIControllerClass = ASPAIController::StaticClass();
+	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
+
+	//auto DefaultSetting = GetDefault<USPCharacterSetting>();
+	//if (DefaultSetting->CharacterAssets.Num() > 0)
+	//{
+	//	for (auto CharacterAsset : DefaultSetting->CharacterAssets)
+	//	{
+	//		ABLOG(Warning, TEXT("Character Asset : %s"), *CharacterAsset.ToString());
+	//	}
+	//}
+
+	SetActorHiddenInGame(true);
+	HPBarWidget->SetHiddenInGame(true);
+	bCanBeDamaged = false;
+}
+
+void ASPCharacter::SetCharacterState(ECharacterState NewState)
+{
+	ABCHECK(CurrentState != NewState);
+	CurrentState = NewState;
+
+	switch (CurrentState)
+	{
+	case ECharacterState::LOADING:
+	{
+		if (bIsPlayer)
+		{
+			DisableInput(SPPlayerController);
+
+			SPPlayerController->GetHUDWidget()->BindCharacterStat(CharacterStat);
+
+			auto SPPlayerState = Cast<ASPPlayerState>(GetPlayerState());
+			ABCHECK(nullptr != SPPlayerState);
+			CharacterStat->SetNewLevel(SPPlayerState->GetCharacterLevel());
+		}
+		else
+		{
+			auto SPGameMode = Cast<ASPGameModeBase>(GetWorld()->GetAuthGameMode());
+			ABCHECK(nullptr != SPGameMode);
+			int32 TargetLevel = FMath::CeilToInt(((float)SPGameMode->GetScore() * 0.8f));
+			int32 FinalLevel = FMath::Clamp<int32>(TargetLevel, 1, 20);
+			ABLOG(Warning, TEXT("New NPC Level : %d"), FinalLevel);
+			CharacterStat->SetNewLevel(FinalLevel);
+		}
+
+		SetActorHiddenInGame(true);
+		HPBarWidget->SetHiddenInGame(true);
+		bCanBeDamaged = false;
+		break;
+	}
+	case ECharacterState::READY:
+	{
+		SetActorHiddenInGame(false);
+		HPBarWidget->SetHiddenInGame(false);
+		bCanBeDamaged = true;
+
+		CharacterStat->OnHPIsZero.AddLambda([this]()->void {
+			SetCharacterState(ECharacterState::DEAD);
+		});
+
+		auto CharacterWidget = Cast<USPCharacterWidget>(HPBarWidget->GetUserWidgetObject());
+		ABCHECK(nullptr != CharacterWidget);
+		CharacterWidget->BindCharacterStat(CharacterStat);
+		
+		if (bIsPlayer)
+		{
+			SetControlMode(EControlMode::DIABLO);
+			GetCharacterMovement()->MaxWalkSpeed = 600.0f;
+			EnableInput(SPPlayerController);
+		}
+		else
+		{
+			SetControlMode(EControlMode::NPC);
+			GetCharacterMovement()->MaxWalkSpeed = 400.0f;
+			SPAIController->RunAI();
+		}
+
+		break;
+	}
+	case ECharacterState::DEAD:
+	{
+		SetActorEnableCollision(false);
+		GetMesh()->SetHiddenInGame(false);
+		HPBarWidget->SetHiddenInGame(true);
+		SPAnim->SetDeadAnim();
+		bCanBeDamaged = false;
+
+		if (bIsPlayer)
+			DisableInput(SPPlayerController);
+		else
+			SPAIController->StopAI();
+
+		GetWorld()->GetTimerManager().SetTimer(DeadTimerHandle, FTimerDelegate::CreateLambda([this]()->void {
+
+			GetWorld()->GetTimerManager().ClearTimer(DeadTimerHandle);
+
+			if (bIsPlayer)
+				SPPlayerController->ShowResultUI();
+			else
+				Destroy();
+		}), DeadTimer, false);
+
+		break;
+	}
+	}
+}
+
+ECharacterState ASPCharacter::GetCharacterState() const
+{
+	return CurrentState;
+}
+
+int32 ASPCharacter::GetExp() const
+{
+	return CharacterStat->GetDropExp();
+}
+
+float ASPCharacter::GetFinalAttackRange() const
+{
+	return (nullptr != CurrentWeapon) ? CurrentWeapon->GetAttackRange() : AttackRange;
+}
+
+float ASPCharacter::GetFinalAttackDamage() const
+{
+	float AttackDamage = (nullptr != CurrentWeapon) ? (CharacterStat->GetAttack() + CurrentWeapon->GetAttackDamage()) : CharacterStat->GetAttack();
+	float AttackModifier = (nullptr != CurrentWeapon) ? CurrentWeapon->GetAttackModifier() : 1.0f;
+
+	return AttackDamage * AttackModifier;
 }
 
 // Called when the game starts or when spawned
@@ -73,6 +214,59 @@ void ASPCharacter::BeginPlay()
 	//auto CurWeapon = GetWorld()->SpawnActor<ASPWeapon>(FVector::ZeroVector, FRotator::ZeroRotator);
 	//if (CurWeapon != nullptr)
 	//	CurWeapon->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, WeaponSocket);
+
+
+	//auto CharacterWidget = Cast<USPCharacterWidget>(HPBarWidget->GetUserWidgetObject());
+	//if (nullptr != CharacterWidget)
+	//{
+	//	CharacterWidget->BindCharacterStat(CharacterStat);
+	//}
+
+	//if (!IsPlayerControlled())
+	//{
+	//	auto DefaultSetting = GetDefault<USPCharacterSetting>();
+	//	int32 RandIndex = FMath::RandRange(0, DefaultSetting->CharacterAssets.Num() - 1);
+	//	CharacterAssetToLoad = DefaultSetting->CharacterAssets[RandIndex];
+
+	//	auto SPGameInstance = Cast<USPGameInstance>(GetGameInstance());
+	//	if (nullptr != SPGameInstance)
+	//	{
+	//		AssetStreamingHandle = SPGameInstance->StreamableManager.RequestAsyncLoad(CharacterAssetToLoad, FStreamableDelegate::CreateUObject(this, &ASPCharacter::OnAssetLoadCompleted));
+	//	}
+	//}
+
+
+
+	bIsPlayer = IsPlayerControlled();
+	if (bIsPlayer)
+	{
+		SPPlayerController = Cast<ASPPlayerController>(GetController());
+		ABCHECK(nullptr != SPPlayerController);
+	}
+	else
+	{
+		SPAIController = Cast<ASPAIController>(GetController());
+		ABCHECK(nullptr != SPAIController);
+	}
+
+	auto DefaultSetting = GetDefault<USPCharacterSetting>();
+
+	if (bIsPlayer)
+	{
+		auto SPPlayerState = Cast<ASPPlayerState>(GetPlayerState());
+		ABCHECK(nullptr != SPPlayerState);
+		AssetIndex = SPPlayerState->GetCharacterIndex();
+	}
+	else
+	{
+		AssetIndex = FMath::RandRange(0, DefaultSetting->CharacterAssets.Num() - 1);
+	}
+
+	CharacterAssetToLoad = DefaultSetting->CharacterAssets[AssetIndex];
+	auto SPGameInstance = Cast<USPGameInstance>(GetGameInstance());
+	ABCHECK(nullptr != SPGameInstance);
+	AssetStreamingHandle = SPGameInstance->StreamableManager.RequestAsyncLoad(CharacterAssetToLoad, FStreamableDelegate::CreateUObject(this, &ASPCharacter::OnAssetLoadCompleted));
+	SetCharacterState(ECharacterState::LOADING);
 }
 
 void ASPCharacter::SetControlMode(EControlMode NewControlMode)
@@ -109,6 +303,12 @@ void ASPCharacter::SetControlMode(EControlMode NewControlMode)
 		GetCharacterMovement()->bOrientRotationToMovement = false;
 		GetCharacterMovement()->bUseControllerDesiredRotation = true;
 		GetCharacterMovement()->RotationRate = FRotator(0.0f, 720.0f, 0.0f);
+		break;
+	case EControlMode::NPC:
+		bUseControllerRotationYaw = false;
+		GetCharacterMovement()->bOrientRotationToMovement = true;
+		GetCharacterMovement()->bUseControllerDesiredRotation = false;
+		GetCharacterMovement()->RotationRate = FRotator(0.0f, 480.0f, 0.0f);
 		break;
 	}
 }
@@ -168,7 +368,7 @@ void ASPCharacter::PostInitializeComponents()
 		ABLOG(Warning, TEXT("OnHPIsZero"));
 		SPAnim->SetDeadAnim();
 		SetActorEnableCollision(false);
-	});
+	});	
 }
 
 float ASPCharacter::TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCause)
@@ -183,8 +383,33 @@ float ASPCharacter::TakeDamage(float DamageAmount, FDamageEvent const& DamageEve
 	//}
 
 	CharacterStat->SetDamage(FinalDamage);
+	if (CurrentState == ECharacterState::DEAD)
+	{
+		if (EventInstigator->IsPlayerController())
+		{
+			auto instigator = Cast<ASPPlayerController>(EventInstigator);
+			ABCHECK(nullptr != instigator, 0.0f);
+			instigator->NPCKill(this);
+		}
+	}
 
 	return FinalDamage;
+}
+
+void ASPCharacter::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+
+	if (IsPlayerControlled())
+	{
+		SetControlMode(EControlMode::DIABLO);
+		GetCharacterMovement()->MaxWalkSpeed = 600.0f;
+	}
+	else
+	{
+		SetControlMode(EControlMode::NPC);
+		GetCharacterMovement()->MaxWalkSpeed = 300.0f;
+	}
 }
 
 // Called to bind functionality to input
@@ -204,12 +429,22 @@ void ASPCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompone
 
 bool ASPCharacter::CanSetWeapon()
 {
-	return (nullptr == CurrentWeapon);
+	//return (nullptr == CurrentWeapon);
+	return true;
 }
 
 void ASPCharacter::SetWeapon(ASPWeapon* NewWeapon)
 {
-	ABCHECK(nullptr != NewWeapon && nullptr == CurrentWeapon);
+	//ABCHECK(nullptr != NewWeapon && nullptr == CurrentWeapon);
+
+	ABCHECK(nullptr != NewWeapon);
+
+	if (nullptr != CurrentWeapon)
+	{
+		CurrentWeapon->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+		CurrentWeapon->Destroy();
+		CurrentWeapon = nullptr;
+	}
 
 	FName WeaponSocket(TEXT("hand_rSocket"));
 	if (nullptr != NewWeapon)
@@ -316,6 +551,8 @@ void ASPCharacter::OnAttackMontageEnded(UAnimMontage* Montage, bool bInterrupted
 	ABCHECK(CurrentCombo > 0);
 	IsAttacking = false;
 	AttackEndComboState();
+
+	OnAttackEnd.Broadcast();
 }
 
 void ASPCharacter::AttackStartComboState()
@@ -335,11 +572,13 @@ void ASPCharacter::AttackEndComboState()
 
 void ASPCharacter::AttackCheck()
 {
+	float FinalAttackRange = GetFinalAttackRange();
+
 	FHitResult HitResult;
 	FCollisionQueryParams Params(NAME_None, false, this);
 	bool bResult = GetWorld()->SweepSingleByChannel(
 		HitResult, GetActorLocation(),
-		GetActorLocation() + GetActorForwardVector() * AttackRange,
+		GetActorLocation() + GetActorForwardVector() * FinalAttackRange,
 		FQuat::Identity,
 		ECollisionChannel::ECC_EngineTraceChannel2,
 		FCollisionShape::MakeSphere(AttackRadius),
@@ -347,9 +586,9 @@ void ASPCharacter::AttackCheck()
 
 #if ENABLE_DRAW_DEBUG
 	
-	FVector TraceVec = GetActorForwardVector() * AttackRange;
+	FVector TraceVec = GetActorForwardVector() * FinalAttackRange;
 	FVector Center = GetActorLocation() + TraceVec * 0.5f;
-	float HalfHeight = AttackRange * 0.5f + AttackRadius;
+	float HalfHeight = FinalAttackRange * 0.5f + AttackRadius;
 	FQuat CapsuleRot = FRotationMatrix::MakeFromZ(TraceVec).ToQuat();
 	FColor DrawColor = bResult ? FColor::Green : FColor::Red;
 	float DebugLifeTime = 2.0f;
@@ -367,8 +606,18 @@ void ASPCharacter::AttackCheck()
 			ABLOG(Warning, TEXT("Hit Actor Name : %s"), *HitResult.Actor->GetName());
 
 			FDamageEvent DamageEvent;
-			HitResult.Actor->TakeDamage(CharacterStat->GetAttack(), DamageEvent, GetController(), this);
+			HitResult.Actor->TakeDamage(GetFinalAttackDamage(), DamageEvent, GetController(), this);
 		}
 	}
+}
+
+void ASPCharacter::OnAssetLoadCompleted()
+{
+	USkeletalMesh* AssetLoaded = Cast<USkeletalMesh>(AssetStreamingHandle->GetLoadedAsset());
+	AssetStreamingHandle.Reset();
+	ABCHECK(nullptr != AssetLoaded);
+	GetMesh()->SetSkeletalMesh(AssetLoaded);
+	
+	SetCharacterState(ECharacterState::READY);
 }
 

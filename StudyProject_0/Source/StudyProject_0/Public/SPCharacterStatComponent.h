@@ -7,6 +7,7 @@
 #include "SPCharacterStatComponent.generated.h"
 
 DECLARE_MULTICAST_DELEGATE(FOnHPIsZeroDelgate);
+DECLARE_MULTICAST_DELEGATE(FOnHPChangedDelegate);
 
 UCLASS( ClassGroup=(Custom), meta=(BlueprintSpawnableComponent) )
 class STUDYPROJECT_0_API USPCharacterStatComponent : public UActorComponent
@@ -25,9 +26,13 @@ protected:
 public:
 	void SetNewLevel(int32 NewLevel);
 	void SetDamage(float newDamage);
-	float GetAttack();
+	void SetHP(float NewHP);
+	float GetAttack() const;
+	float GetHPRatio() const;
+	int32 GetDropExp() const;
 
 	FOnHPIsZeroDelgate OnHPIsZero;
+	FOnHPChangedDelegate OnHPChanged;
 
 private:
 	struct FSPCharacterData* CurrentStatData = nullptr;

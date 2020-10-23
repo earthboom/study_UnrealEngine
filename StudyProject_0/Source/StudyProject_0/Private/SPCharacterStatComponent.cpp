@@ -42,6 +42,7 @@ void USPCharacterStatComponent::SetNewLevel(int32 NewLevel)
 	if (nullptr != CurrentStatData)
 	{
 		Level = NewLevel;
+		SetHP(CurrentStatData->MaxHp);
 		CurrentHP = CurrentStatData->MaxHp;
 	}
 	else
@@ -53,15 +54,34 @@ void USPCharacterStatComponent::SetNewLevel(int32 NewLevel)
 void USPCharacterStatComponent::SetDamage(float newDamage)
 {
 	ABCHECK(nullptr != CurrentStatData);
-	CurrentHP = FMath::Clamp<float>(CurrentHP - newDamage, 0.0f, CurrentStatData->MaxHp);
-	if (CurrentHP <= 0.0f)
+	SetHP(FMath::Clamp<float>(CurrentHP - newDamage, 0.0f, CurrentStatData->MaxHp));
+}
+
+void USPCharacterStatComponent::SetHP(float NewHP)
+{
+	CurrentHP = NewHP;
+	OnHPChanged.Broadcast();
+	if (CurrentHP < KINDA_SMALL_NUMBER)
 	{
+		CurrentHP = 0.0f;
 		OnHPIsZero.Broadcast();
 	}
 }
 
-float USPCharacterStatComponent::GetAttack()
+float USPCharacterStatComponent::GetAttack() const
 {
 	ABCHECK(nullptr != CurrentStatData, 0.0f);
 	return CurrentStatData->Attack;
+}
+
+float USPCharacterStatComponent::GetHPRatio() const
+{
+	ABCHECK(nullptr != CurrentStatData, 0.0f);
+
+	return (CurrentStatData->MaxHp < KINDA_SMALL_NUMBER) ? 0.0 : (CurrentHP / CurrentStatData->MaxHp);
+}
+
+int32 USPCharacterStatComponent::GetDropExp() const
+{
+	return CurrentStatData->DropExp;
 }

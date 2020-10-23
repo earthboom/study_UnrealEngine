@@ -17,5 +17,15 @@ class STUDYPROJECT_0_API ASPGameModeBase : public AGameModeBase
 public:
 	ASPGameModeBase();
 
+	virtual void PostInitializeComponents() override;
 	virtual void PostLogin(APlayerController* NewPlayer) override;
+	void AddScore(class ASPPlayerController* ScoredPlayer);
+	int32 GetScore() const;
+
+private:
+	UPROPERTY()
+		class ASPGameState* SPGameState;
+
+	UPROPERTY()
+		int32 ScoreToClear;
 };
